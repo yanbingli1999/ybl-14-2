@@ -166,9 +166,10 @@ export default function TrainPanel() {
       )}
 
       <div className="mt-3 p-2 bg-white/60 rounded-lg text-xs text-amber-800 space-y-1">
-        <p>💡 <strong>封签技巧</strong>：装载率≥{Math.round(GAME_CONFIG.SEAL_THRESHOLD_RATE * 100)}%可封签</p>
+        <p>💡 <strong>封签技巧</strong>：装载量<strong>接近订单数量</strong>（±2或70%~110%）可封签</p>
         <p>🏆 发车时封签车厢<strong>刚好匹配</strong>订单可额外+{GAME_CONFIG.SEAL_REPUTATION_BONUS}信誉</p>
         <p>💰 拆封需消耗 {GAME_CONFIG.UNSEAL_COIN_COST} 金币并重置奖励倍率</p>
+        <p>📦 拆封后糖仓中同类糖果会<strong>自动转入</strong>车厢，也可手动点击「转入」</p>
       </div>
     </div>
   );

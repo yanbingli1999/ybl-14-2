@@ -1,8 +1,8 @@
 import { Carriage } from '@/types';
 import { CANDY_CONFIG, GAME_CONFIG } from '@/data/config';
-import { getLoadPercentage, canSealCarriage } from '@/engine/loadingSystem';
+import { getLoadPercentage } from '@/engine/loadingSystem';
 import useGameStore from '@/store/useGameStore';
-import { Lock, Unlock } from 'lucide-react';
+import { Lock, Unlock, ArrowDownToLine } from 'lucide-react';
 
 interface CarriageCardProps {
   carriage: Carriage;
@@ -12,15 +12,32 @@ export default function CarriageCard({ carriage }: CarriageCardProps) {
   const config = CANDY_CONFIG[carriage.candyType];
   const loadPercent = getLoadPercentage(carriage);
   const isFull = loadPercent >= 100;
-  const canSeal = canSealCarriage(carriage);
-  const { sealCarriage, unsealCarriage, profile, isAnimating, gamePhase } = useGameStore();
+
+  const {
+    sealCarriage,
+    unsealCarriage,
+    transferFromWarehouse,
+    canSealCarriageWithOrder,
+    profile,
+    isAnimating,
+    gamePhase,
+    currentOrder,
+    sugarWarehouse,
+  } = useGameStore();
 
   const disabled = isAnimating || gamePhase !== 'playing';
+  const canSeal = canSealCarriageWithOrder(carriage.id) && !disabled;
   const canUnseal = carriage.isSealed && profile.coins >= GAME_CONFIG.UNSEAL_COIN_COST && !disabled;
+
+  const orderItem = currentOrder?.items.find(i => i.candyType === carriage.candyType);
+  const warehouseCount = sugarWarehouse.storage[carriage.candyType] || 0;
+  const canTransfer = warehouseCount > 0 && !carriage.isSealed && carriage.currentLoad < carriage.capacity && !disabled;
+  const spaceAvailable = carriage.capacity - carriage.currentLoad;
+  const transferAmount = Math.min(warehouseCount, spaceAvailable);
 
   const handleSeal = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (canSeal && !disabled) {
+    if (canSeal) {
       sealCarriage(carriage.id);
     }
   };
@@ -29,12 +46,29 @@ export default function CarriageCard({ carriage }: CarriageCardProps) {
     e.stopPropagation();
     if (canUnseal) {
       const confirmed = window.confirm(
-        `拆封需要消耗 ${GAME_CONFIG.UNSEAL_COIN_COST} 金币，并重置奖励倍率。确定要拆封吗？`
+        `拆封需要消耗 ${GAME_CONFIG.UNSEAL_COIN_COST} 金币，并重置奖励倍率。\n糖仓中的 ${config.emoji} x${warehouseCount} 将自动转入车厢。\n确定要拆封吗？`
       );
       if (confirmed) {
         unsealCarriage(carriage.id);
       }
     }
+  };
+
+  const handleTransfer = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (canTransfer) {
+      const transferred = transferFromWarehouse(carriage.id);
+      if (transferred > 0) {
+        console.log(`已转入 ${transferred} 个 ${config.name} 到车厢`);
+      }
+    }
+  };
+
+  const getSealHint = () => {
+    if (!orderItem) {
+      return `装载率≥${Math.round(GAME_CONFIG.SEAL_THRESHOLD_RATE * 100)}%可封签`;
+    }
+    return `接近订单量 ${orderItem.quantity} 可封签`;
   };
 
   return (
@@ -77,9 +111,15 @@ export default function CarriageCard({ carriage }: CarriageCardProps) {
         )}
       </div>
 
-      <div className={`text-xs font-bold mb-1 ${carriage.isSealed ? 'text-amber-700' : 'text-gray-700'}`}>
+      <div className={`text-xs font-bold mb-0.5 ${carriage.isSealed ? 'text-amber-700' : 'text-gray-700'}`}>
         {carriage.currentLoad}/{carriage.capacity}
       </div>
+
+      {orderItem && (
+        <div className="text-[10px] text-gray-500 mb-1">
+          📋 订单: {orderItem.quantity}
+        </div>
+      )}
 
       <div className="w-full h-2 bg-gray-300 rounded-full overflow-hidden mb-1">
         <div
@@ -92,14 +132,25 @@ export default function CarriageCard({ carriage }: CarriageCardProps) {
         />
       </div>
 
-      {!carriage.isSealed && canSeal && !disabled && (
+      {!carriage.isSealed && canSeal && (
         <button
           onClick={handleSeal}
           className="mt-1 w-full py-1 px-2 text-[10px] font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-md hover:from-amber-600 hover:to-orange-600 transition-all duration-200 flex items-center justify-center gap-1 shadow-sm"
-          title={`装载率≥${Math.round(GAME_CONFIG.SEAL_THRESHOLD_RATE * 100)}%可封签`}
+          title={getSealHint()}
         >
           <Lock className="w-3 h-3" />
           封签
+        </button>
+      )}
+
+      {!carriage.isSealed && canTransfer && (
+        <button
+          onClick={handleTransfer}
+          className="mt-1 w-full py-1 px-2 text-[10px] font-bold text-white bg-gradient-to-r from-sky-500 to-blue-500 rounded-md hover:from-sky-600 hover:to-blue-600 transition-all duration-200 flex items-center justify-center gap-1 shadow-sm"
+          title={`从糖仓转入 ${transferAmount} 个 ${config.name}`}
+        >
+          <ArrowDownToLine className="w-3 h-3" />
+          转入 x{transferAmount}
         </button>
       )}
 
@@ -119,8 +170,22 @@ export default function CarriageCard({ carriage }: CarriageCardProps) {
         </button>
       )}
 
+      {warehouseCount > 0 && !carriage.isSealed && !canTransfer && (
+        <div className="mt-1 text-[9px] text-sky-600 text-center">
+          糖仓: +{warehouseCount}
+        </div>
+      )}
+
       {isFull && !carriage.isSealed && (
         <div className="absolute -top-2 -right-2 text-lg animate-bounce">✨</div>
+      )}
+
+      {orderItem && Math.abs(carriage.currentLoad - orderItem.quantity) <= 2 && !carriage.isSealed && (
+        <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 z-10">
+          <div className="bg-green-500 text-white text-[9px] px-1.5 py-0.5 rounded-full shadow-md animate-pulse">
+            接近订单
+          </div>
+        </div>
       )}
     </div>
   );

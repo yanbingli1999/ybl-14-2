@@ -202,8 +202,16 @@ export function unsealCarriage(train: Train, carriageId: string): Train {
   };
 }
 
-export function canSealCarriage(carriage: Carriage): boolean {
+export function canSealCarriage(carriage: Carriage, orderQuantity?: number): boolean {
   if (carriage.isSealed) return false;
+  if (carriage.currentLoad <= 0) return false;
+
+  if (orderQuantity !== undefined && orderQuantity > 0) {
+    const diff = Math.abs(carriage.currentLoad - orderQuantity);
+    const ratio = carriage.currentLoad / orderQuantity;
+    return diff <= 2 || (ratio >= GAME_CONFIG.SEAL_THRESHOLD_RATE && ratio <= 1.1);
+  }
+
   const loadRate = carriage.currentLoad / carriage.capacity;
   return loadRate >= GAME_CONFIG.SEAL_THRESHOLD_RATE;
 }

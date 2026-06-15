@@ -34,6 +34,7 @@ import {
   canSealCarriage,
   clearWarehouse,
   getWarehouseLoad,
+  transferWarehouseToTrain,
 } from '@/engine/loadingSystem';
 import {
   calculateDispatchResult,
@@ -85,6 +86,8 @@ interface GameStore {
   sealCarriage: (carriageId: string) => boolean;
   unsealCarriage: (carriageId: string) => boolean;
   clearWarehouseLossMessage: () => void;
+  transferFromWarehouse: (carriageId: string) => number;
+  canSealCarriageWithOrder: (carriageId: string) => boolean;
 }
 
 const useGameStore = create<GameStore>((set, get) => {
@@ -134,13 +137,24 @@ const useGameStore = create<GameStore>((set, get) => {
       });
     },
 
+    canSealCarriageWithOrder: (carriageId: string): boolean => {
+      const { train, currentOrder } = get();
+      const carriage = train.carriages.find(c => c.id === carriageId);
+      if (!carriage) return false;
+
+      const orderItem = currentOrder?.items.find(i => i.candyType === carriage.candyType);
+      return canSealCarriage(carriage, orderItem?.quantity);
+    },
+
     sealCarriage: (carriageId: string): boolean => {
-      const { train, isAnimating, gamePhase } = get();
+      const { train, isAnimating, gamePhase, currentOrder } = get();
       if (isAnimating || gamePhase !== 'playing') return false;
 
       const carriage = train.carriages.find(c => c.id === carriageId);
       if (!carriage) return false;
-      if (!canSealCarriage(carriage)) return false;
+
+      const orderItem = currentOrder?.items.find(i => i.candyType === carriage.candyType);
+      if (!canSealCarriage(carriage, orderItem?.quantity)) return false;
 
       const newTrain = sealCarriageUtil(train, carriageId);
       const newMultiplier = get().rewardMultiplier + 0.2;
@@ -153,15 +167,30 @@ const useGameStore = create<GameStore>((set, get) => {
       return true;
     },
 
+    transferFromWarehouse: (carriageId: string): number => {
+      const { train, sugarWarehouse, isAnimating, gamePhase } = get();
+      if (isAnimating || gamePhase !== 'playing') return 0;
+
+      const result = transferWarehouseToTrain(train, sugarWarehouse, carriageId);
+      if (result.transferred > 0) {
+        set({
+          train: result.train,
+          sugarWarehouse: result.warehouse,
+        });
+        get().persist();
+      }
+      return result.transferred;
+    },
+
     unsealCarriage: (carriageId: string): boolean => {
-      const { train, profile, isAnimating, gamePhase } = get();
+      const { train, profile, isAnimating, gamePhase, sugarWarehouse } = get();
       if (isAnimating || gamePhase !== 'playing') return false;
 
       const penalty = calculateUnsealPenalty(train, carriageId);
       if (penalty.coinCost === 0) return false;
       if (profile.coins < penalty.coinCost) return false;
 
-      const newTrain = unsealCarriageUtil(train, carriageId);
+      let newTrain = unsealCarriageUtil(train, carriageId);
       const newProfile: PlayerProfile = {
         ...profile,
         coins: profile.coins - penalty.coinCost,
@@ -172,9 +201,12 @@ const useGameStore = create<GameStore>((set, get) => {
         ? GAME_CONFIG.BASE_REWARD_MULTIPLIER
         : get().rewardMultiplier;
 
+      const transferResult = transferWarehouseToTrain(newTrain, sugarWarehouse, carriageId);
+
       set({
-        train: newTrain,
+        train: transferResult.train,
         profile: newProfile,
+        sugarWarehouse: transferResult.warehouse,
         rewardMultiplier: newMultiplier,
       });
       get().persist();
