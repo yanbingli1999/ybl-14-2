@@ -52,12 +52,17 @@ export const INITIAL_TRAIN: Train = {
   id: 'candy-express',
   name: '糖果快车',
   carriages: [
-    { id: 'car-1', candyType: 'strawberry', capacity: 20, currentLoad: 0 },
-    { id: 'car-2', candyType: 'lemon', capacity: 20, currentLoad: 0 },
-    { id: 'car-3', candyType: 'mint', capacity: 20, currentLoad: 0 },
-    { id: 'car-4', candyType: 'blueberry', capacity: 20, currentLoad: 0 },
-    { id: 'car-5', candyType: 'grape', capacity: 20, currentLoad: 0 },
+    { id: 'car-1', candyType: 'strawberry', capacity: 20, currentLoad: 0, isSealed: false },
+    { id: 'car-2', candyType: 'lemon', capacity: 20, currentLoad: 0, isSealed: false },
+    { id: 'car-3', candyType: 'mint', capacity: 20, currentLoad: 0, isSealed: false },
+    { id: 'car-4', candyType: 'blueberry', capacity: 20, currentLoad: 0, isSealed: false },
+    { id: 'car-5', candyType: 'grape', capacity: 20, currentLoad: 0, isSealed: false },
   ],
+};
+
+export const INITIAL_WAREHOUSE = {
+  capacity: 30,
+  storage: {},
 };
 
 export const GAME_CONFIG = {
@@ -73,4 +78,11 @@ export const GAME_CONFIG = {
   REPUTATION_PER_SUCCESS: 10,
   REPUTATION_PER_FAIL: -5,
   LOAD_PER_MATCH: 1,
+  SEAL_THRESHOLD_RATE: 0.7,
+  SEAL_REPUTATION_BONUS: 15,
+  UNSEAL_COIN_COST: 50,
+  UNSEAL_MULTIPLIER_RESET: true,
+  WAREHOUSE_LOSS_RATE: 0.3,
+  WAREHOUSE_BASE_CAPACITY: 30,
+  BASE_REWARD_MULTIPLIER: 1.0,
 };

@@ -11,8 +11,9 @@ import {
   StationOrder,
   Position,
   DispatchResult,
+  SugarWarehouse,
 } from '@/types';
-import { STATIONS, INITIAL_TRAIN, GAME_CONFIG } from '@/data/config';
+import { STATIONS, INITIAL_TRAIN, GAME_CONFIG, INITIAL_WAREHOUSE } from '@/data/config';
 import { createInitialBoard } from '@/engine/matchEngine';
 import { generateOrder } from '@/engine/contractSystem';
 
@@ -34,6 +35,8 @@ export interface PersistedGameState {
   maxCombo: number;
   gamePhase: 'playing' | 'dispatching' | 'result' | 'gameover';
   dispatchResult: DispatchResult | null;
+  sugarWarehouse: SugarWarehouse;
+  rewardMultiplier: number;
   timestamp: number;
 }
 
@@ -53,6 +56,18 @@ export function loadGameState(profile: PlayerProfile): PersistedGameState | null
       const parsed = JSON.parse(data) as PersistedGameState;
       const now = Date.now();
       if (now - parsed.timestamp < 24 * 60 * 60 * 1000) {
+        if (!parsed.sugarWarehouse) {
+          parsed.sugarWarehouse = JSON.parse(JSON.stringify(INITIAL_WAREHOUSE));
+        }
+        if (parsed.rewardMultiplier === undefined) {
+          parsed.rewardMultiplier = GAME_CONFIG.BASE_REWARD_MULTIPLIER;
+        }
+        if (parsed.train && parsed.train.carriages) {
+          parsed.train.carriages = parsed.train.carriages.map(c => ({
+            ...c,
+            isSealed: c.isSealed || false,
+          }));
+        }
         return parsed;
       }
     }
@@ -72,6 +87,8 @@ export function loadGameState(profile: PlayerProfile): PersistedGameState | null
     maxCombo: 0,
     gamePhase: 'playing',
     dispatchResult: null,
+    sugarWarehouse: JSON.parse(JSON.stringify(INITIAL_WAREHOUSE)),
+    rewardMultiplier: GAME_CONFIG.BASE_REWARD_MULTIPLIER,
     timestamp: Date.now(),
   };
 }

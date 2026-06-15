@@ -8,6 +8,7 @@ import {
   DispatchResult,
   PlayerProfile,
   AllStats,
+  SugarWarehouse,
 } from '@/types';
 import {
   createInitialBoard,
@@ -25,8 +26,19 @@ import {
   checkSwapHasSpecial,
   triggerSpecialCandy,
 } from '@/engine/matchEngine';
-import { loadCandiesToTrain, clearTrain } from '@/engine/loadingSystem';
-import { calculateDispatchResult } from '@/engine/dispatchSystem';
+import {
+  loadCandiesToTrain,
+  clearTrain,
+  sealCarriage as sealCarriageUtil,
+  unsealCarriage as unsealCarriageUtil,
+  canSealCarriage,
+  clearWarehouse,
+  getWarehouseLoad,
+} from '@/engine/loadingSystem';
+import {
+  calculateDispatchResult,
+  calculateUnsealPenalty,
+} from '@/engine/dispatchSystem';
 import { generateOrder } from '@/engine/contractSystem';
 import {
   loadProfile,
@@ -38,7 +50,7 @@ import {
   clearGameState,
   recordDispatchStats,
 } from '@/utils/storage';
-import { INITIAL_TRAIN, GAME_CONFIG, STATIONS } from '@/data/config';
+import { INITIAL_TRAIN, GAME_CONFIG, STATIONS, INITIAL_WAREHOUSE } from '@/data/config';
 
 interface GameStore {
   board: (Candy | null)[][];
@@ -56,6 +68,9 @@ interface GameStore {
   profile: PlayerProfile;
   stats: AllStats;
   showStats: boolean;
+  sugarWarehouse: SugarWarehouse;
+  rewardMultiplier: number;
+  warehouseLossMessage: string | null;
 
   selectCandy: (pos: Position) => void;
   processSwap: (pos1: Position, pos2: Position) => void;
@@ -67,6 +82,9 @@ interface GameStore {
   closeResult: () => void;
   changeStation: (stationId: string) => void;
   persist: () => void;
+  sealCarriage: (carriageId: string) => boolean;
+  unsealCarriage: (carriageId: string) => boolean;
+  clearWarehouseLossMessage: () => void;
 }
 
 const useGameStore = create<GameStore>((set, get) => {
@@ -90,6 +108,13 @@ const useGameStore = create<GameStore>((set, get) => {
     profile: initialProfile,
     stats: initialStats,
     showStats: false,
+    sugarWarehouse: persisted?.sugarWarehouse || JSON.parse(JSON.stringify(INITIAL_WAREHOUSE)),
+    rewardMultiplier: persisted?.rewardMultiplier ?? GAME_CONFIG.BASE_REWARD_MULTIPLIER,
+    warehouseLossMessage: null,
+
+    clearWarehouseLossMessage: () => {
+      set({ warehouseLossMessage: null });
+    },
 
     persist: () => {
       const s = get();
@@ -104,7 +129,56 @@ const useGameStore = create<GameStore>((set, get) => {
         maxCombo: s.maxCombo,
         gamePhase: s.gamePhase,
         dispatchResult: s.dispatchResult,
+        sugarWarehouse: s.sugarWarehouse,
+        rewardMultiplier: s.rewardMultiplier,
       });
+    },
+
+    sealCarriage: (carriageId: string): boolean => {
+      const { train, isAnimating, gamePhase } = get();
+      if (isAnimating || gamePhase !== 'playing') return false;
+
+      const carriage = train.carriages.find(c => c.id === carriageId);
+      if (!carriage) return false;
+      if (!canSealCarriage(carriage)) return false;
+
+      const newTrain = sealCarriageUtil(train, carriageId);
+      const newMultiplier = get().rewardMultiplier + 0.2;
+
+      set({
+        train: newTrain,
+        rewardMultiplier: newMultiplier,
+      });
+      get().persist();
+      return true;
+    },
+
+    unsealCarriage: (carriageId: string): boolean => {
+      const { train, profile, isAnimating, gamePhase } = get();
+      if (isAnimating || gamePhase !== 'playing') return false;
+
+      const penalty = calculateUnsealPenalty(train, carriageId);
+      if (penalty.coinCost === 0) return false;
+      if (profile.coins < penalty.coinCost) return false;
+
+      const newTrain = unsealCarriageUtil(train, carriageId);
+      const newProfile: PlayerProfile = {
+        ...profile,
+        coins: profile.coins - penalty.coinCost,
+      };
+      saveProfile(newProfile);
+
+      const newMultiplier = penalty.multiplierReset
+        ? GAME_CONFIG.BASE_REWARD_MULTIPLIER
+        : get().rewardMultiplier;
+
+      set({
+        train: newTrain,
+        profile: newProfile,
+        rewardMultiplier: newMultiplier,
+      });
+      get().persist();
+      return true;
     },
 
     selectCandy: (pos: Position) => {
@@ -240,19 +314,38 @@ const useGameStore = create<GameStore>((set, get) => {
         }
 
         const candyCounts = countClearedCandies(allMatches);
-        const { train: newTrain } = loadCandiesToTrain(get().train, candyCounts);
+        const {
+          train: newTrain,
+          warehouse: newWarehouse,
+          warehouseLoss,
+        } = loadCandiesToTrain(get().train, candyCounts, get().sugarWarehouse);
+
+        let lossMsg: string | null = null;
+        const lossEntries = Object.entries(warehouseLoss);
+        if (lossEntries.length > 0) {
+          const lossParts = lossEntries.map(([type, count]) => `${type}: -${count}`);
+          lossMsg = `糖仓爆满损耗：${lossParts.join(', ')}`;
+        }
 
         const newMaxCombo = Math.max(get().maxCombo, totalCombo);
 
         set(state => ({
           train: newTrain,
+          sugarWarehouse: newWarehouse,
           score: state.score + totalScore,
           combo: totalCombo,
           maxCombo: newMaxCombo,
           isAnimating: false,
+          warehouseLossMessage: lossMsg,
         }));
 
         get().persist();
+
+        if (lossMsg) {
+          setTimeout(() => {
+            get().clearWarehouseLossMessage();
+          }, 3000);
+        }
 
         if (get().moves <= 0) {
           set({ gamePhase: 'gameover' });
@@ -264,11 +357,11 @@ const useGameStore = create<GameStore>((set, get) => {
     },
 
     dispatchTrain: () => {
-      const { train, currentOrder, profile, gamePhase, moves, maxCombo } = get();
+      const { train, currentOrder, profile, gamePhase, moves, maxCombo, rewardMultiplier, sugarWarehouse } = get();
 
       if (gamePhase !== 'playing' || !currentOrder) return;
 
-      const result = calculateDispatchResult(train, currentOrder);
+      const result = calculateDispatchResult(train, currentOrder, rewardMultiplier);
 
       let newCoins = profile.coins + result.reward - result.penalty;
       newCoins = Math.max(0, newCoins);
@@ -299,9 +392,14 @@ const useGameStore = create<GameStore>((set, get) => {
         result.reputationChange
       );
 
+      const warehouseWaste = getWarehouseLoad(sugarWarehouse);
+
       set({
         gamePhase: 'result',
-        dispatchResult: result,
+        dispatchResult: {
+          ...result,
+          unsealedPenalty: 0,
+        },
         profile: newProfile,
         stats: loadStats(),
       });
@@ -323,6 +421,8 @@ const useGameStore = create<GameStore>((set, get) => {
         moves: GAME_CONFIG.INITIAL_MOVES,
         combo: 0,
         maxCombo: 0,
+        sugarWarehouse: clearWarehouse(state.sugarWarehouse),
+        rewardMultiplier: GAME_CONFIG.BASE_REWARD_MULTIPLIER,
       }));
 
       get().persist();
@@ -348,6 +448,9 @@ const useGameStore = create<GameStore>((set, get) => {
         dispatchResult: null,
         profile,
         stats: loadStats(),
+        sugarWarehouse: JSON.parse(JSON.stringify(INITIAL_WAREHOUSE)),
+        rewardMultiplier: GAME_CONFIG.BASE_REWARD_MULTIPLIER,
+        warehouseLossMessage: null,
       });
 
       clearGameState();
@@ -378,6 +481,8 @@ const useGameStore = create<GameStore>((set, get) => {
         currentStationId: stationId,
         currentOrder: newOrder,
         train: clearTrain(state.train),
+        sugarWarehouse: clearWarehouse(state.sugarWarehouse),
+        rewardMultiplier: GAME_CONFIG.BASE_REWARD_MULTIPLIER,
       }));
 
       get().persist();

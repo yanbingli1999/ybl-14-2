@@ -4,12 +4,15 @@ import { getCandyLoad } from './loadingSystem';
 
 export function calculateDispatchResult(
   train: Train,
-  order: StationOrder
+  order: StationOrder,
+  rewardMultiplier: number = 1.0
 ): DispatchResult {
   const correctItems: OrderItem[] = [];
   const mismatches: OrderItem[] = [];
   let matchPoints = 0;
   let totalRequired = 0;
+  let sealedBonus = 0;
+  let perfectlyMatchedSealed = 0;
 
   for (const item of order.items) {
     const loaded = getCandyLoad(train, item.candyType);
@@ -18,6 +21,11 @@ export function calculateDispatchResult(
     if (loaded >= item.quantity) {
       correctItems.push({ ...item });
       matchPoints += item.quantity;
+
+      const carriage = train.carriages.find(c => c.candyType === item.candyType);
+      if (carriage?.isSealed && carriage.currentLoad === item.quantity) {
+        perfectlyMatchedSealed++;
+      }
     } else if (loaded > 0) {
       correctItems.push({ candyType: item.candyType, quantity: loaded });
       mismatches.push({ candyType: item.candyType, quantity: item.quantity - loaded });
@@ -37,9 +45,11 @@ export function calculateDispatchResult(
   const matchRate = totalRequired > 0 ? matchPoints / totalRequired : 0;
   const success = matchRate >= 0.8;
 
+  sealedBonus = perfectlyMatchedSealed * GAME_CONFIG.SEAL_REPUTATION_BONUS;
+
   let reward = 0;
   if (success) {
-    reward = order.reward;
+    reward = Math.floor(order.reward * rewardMultiplier);
     if (order.isUrgent) {
       reward += Math.floor(order.reward * GAME_CONFIG.URGENT_BONUS_RATE);
     }
@@ -51,9 +61,11 @@ export function calculateDispatchResult(
     penalty = Math.min(penalty, order.penalty);
   }
 
-  const reputationChange = success
+  const baseReputationChange = success
     ? GAME_CONFIG.REPUTATION_PER_SUCCESS
     : GAME_CONFIG.REPUTATION_PER_FAIL;
+
+  const reputationChange = baseReputationChange + sealedBonus;
 
   return {
     success,
@@ -63,6 +75,23 @@ export function calculateDispatchResult(
     mismatches,
     correctItems,
     reputationChange,
+    sealedBonus,
+    unsealedPenalty: 0,
+  };
+}
+
+export function calculateUnsealPenalty(
+  train: Train,
+  carriageId: string
+): { coinCost: number; multiplierReset: boolean } {
+  const carriage = train.carriages.find(c => c.id === carriageId);
+  if (!carriage || !carriage.isSealed) {
+    return { coinCost: 0, multiplierReset: false };
+  }
+
+  return {
+    coinCost: GAME_CONFIG.UNSEAL_COIN_COST,
+    multiplierReset: GAME_CONFIG.UNSEAL_MULTIPLIER_RESET,
   };
 }
 

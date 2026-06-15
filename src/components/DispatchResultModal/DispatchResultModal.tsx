@@ -7,7 +7,7 @@ export default function DispatchResultModal() {
 
   if (gamePhase !== 'result' || !dispatchResult || !currentOrder) return null;
 
-  const { success, matchRate, reward, penalty, mismatches, correctItems, reputationChange } =
+  const { success, matchRate, reward, penalty, mismatches, correctItems, reputationChange, sealedBonus } =
     dispatchResult;
 
   return (
@@ -57,6 +57,16 @@ export default function DispatchResultModal() {
               </div>
             </div>
           </div>
+
+          {sealedBonus > 0 && (
+            <div className="mb-4 p-3 bg-amber-50 rounded-xl flex items-center gap-2 border border-amber-200">
+              <span className="text-xl">🔒</span>
+              <span className="text-amber-700 text-sm font-medium">
+                封签匹配奖励: +{sealedBonus} 信誉
+              </span>
+              <TrendingUp className="w-4 h-4 text-amber-500 ml-auto" />
+            </div>
+          )}
 
           {penalty > 0 && (
             <div className="mb-4 p-3 bg-red-50 rounded-xl flex items-center gap-2">

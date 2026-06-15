@@ -38,6 +38,24 @@ export interface Carriage {
   candyType: CandyType;
   capacity: number;
   currentLoad: number;
+  isSealed: boolean;
+}
+
+export interface SugarWarehouse {
+  capacity: number;
+  storage: Partial<Record<CandyType, number>>;
+}
+
+export interface DispatchResult {
+  success: boolean;
+  matchRate: number;
+  reward: number;
+  penalty: number;
+  mismatches: OrderItem[];
+  correctItems: OrderItem[];
+  reputationChange: number;
+  sealedBonus: number;
+  unsealedPenalty: number;
 }
 
 export interface Train {
@@ -92,16 +110,8 @@ export interface GameState {
   isAnimating: boolean;
   gamePhase: 'playing' | 'dispatching' | 'result' | 'gameover';
   dispatchResult: DispatchResult | null;
-}
-
-export interface DispatchResult {
-  success: boolean;
-  matchRate: number;
-  reward: number;
-  penalty: number;
-  mismatches: OrderItem[];
-  correctItems: OrderItem[];
-  reputationChange: number;
+  sugarWarehouse: SugarWarehouse;
+  rewardMultiplier: number;
 }
 
 export interface StatsStep {
